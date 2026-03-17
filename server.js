@@ -1,89 +1,79 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
+const { createClient } = require('@supabase/supabase-js');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const TASKS_FILE = path.join(__dirname, 'tasks.json');
-const LOG_FILE = path.join(__dirname, 'tasks.log');
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY
+);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-function readTasks() {
-  if (!fs.existsSync(TASKS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(TASKS_FILE, 'utf8'));
-}
-
-function writeTasks(tasks) {
-  fs.writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
-}
-
-function appendLog(message) {
-  const timestamp = new Date().toISOString();
-  fs.appendFileSync(LOG_FILE, `[${timestamp}] ${message}\n`);
-}
-
 // GET all tasks
-app.get('/api/tasks', (req, res) => {
-  res.json(readTasks());
+app.get('/api/tasks', async (req, res) => {
+  const { data, error } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
 
 // POST create task
-app.post('/api/tasks', (req, res) => {
+app.post('/api/tasks', async (req, res) => {
   const { title, description, priority } = req.body;
   if (!title || !priority) return res.status(400).json({ error: 'title and priority required' });
 
-  const tasks = readTasks();
-  const task = {
-    id: uuidv4(),
-    title,
-    description: description || '',
-    priority, // high | medium | low
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-    completedAt: null
-  };
-  tasks.push(task);
-  writeTasks(tasks);
-  appendLog(`CREATED task "${title}" [${priority}]`);
-  res.status(201).json(task);
+  const { data, error } = await supabase
+    .from('tasks')
+    .insert({ title, description: description || '', priority })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
 });
 
 // PUT update task
-app.put('/api/tasks/:id', (req, res) => {
-  const tasks = readTasks();
-  const idx = tasks.findIndex(t => t.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-
-  const updated = { ...tasks[idx], ...req.body, id: tasks[idx].id };
-  tasks[idx] = updated;
-  writeTasks(tasks);
-  appendLog(`UPDATED task "${updated.title}" [status: ${updated.status}]`);
-  res.json(updated);
+app.put('/api/tasks/:id', async (req, res) => {
+  const updates = req.body;
+  if (updates.status === 'complete' && !updates.completed_at) {
+    updates.completed_at = new Date().toISOString();
+  }
+  const { data, error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', req.params.id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
 
 // DELETE task
-app.delete('/api/tasks/:id', (req, res) => {
-  const tasks = readTasks();
-  const idx = tasks.findIndex(t => t.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-
-  const [removed] = tasks.splice(idx, 1);
-  writeTasks(tasks);
-  appendLog(`DELETED task "${removed.title}"`);
+app.delete('/api/tasks/:id', async (req, res) => {
+  const { error } = await supabase
+    .from('tasks')
+    .delete()
+    .eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ success: true });
 });
 
-// GET log file contents
-app.get('/api/log', (req, res) => {
-  if (!fs.existsSync(LOG_FILE)) return res.json({ log: '' });
-  const log = fs.readFileSync(LOG_FILE, 'utf8');
+// GET log (last 100 lines from supabase logs table — fallback to empty)
+app.get('/api/log', async (req, res) => {
+  const { data } = await supabase
+    .from('task_logs')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(100);
+  const log = (data || []).reverse().map(r => `[${r.created_at}] ${r.message}`).join('\n');
   res.json({ log });
 });
 
 app.listen(PORT, () => {
   console.log(`Todo dashboard running at http://localhost:${PORT}`);
-  appendLog(`SERVER started on port ${PORT}`);
 });
