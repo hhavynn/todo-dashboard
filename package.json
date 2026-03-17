@@ -8,6 +8,8 @@
     "worker": "node worker.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.99.2",
+    "dotenv": "^17.3.1",
     "express": "^4.18.2",
     "uuid": "^9.0.0"
   }
