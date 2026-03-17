@@ -1,0 +1,14 @@
+{
+  "name": "todo-dashboard",
+  "version": "1.0.0",
+  "description": "To-do dashboard with web UI and autonomous task processor",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "worker": "node worker.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "uuid": "^9.0.0"
+  }
+}
